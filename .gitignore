@@ -1,0 +1,26 @@
+# 原始訓練資料（Roboflow zip 與解壓內容）— 檔過大且超過 GitHub 100MB 上限
+yolo_workspace/temp/
+yolo_workspace/sixseven-project-main.zip
+yolov8n_v3_training_pack.zip
+
+# WebUI 模型備份
+webUI_workspace/models/*.bak
+
+# 系統/測試檔
+cuda-keyring_1.1-1_all.deb
+bus.jpg
+
+# 舊/重複資料集（僅部署 v3）
+yolo_workspace_raw/
+yolo_workspace_v2/
+
+# Python
+__pycache__/
+*.pyc
+
+# 推理暫存輸出（predict）
+runs/*/predict/
+webUI_workspace/runs/
+
+# 暫存
+nohup.out

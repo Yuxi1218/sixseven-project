@@ -1,0 +1,12 @@
+train: /home/sixseven/sixseven-project/yolo_workspace_v3/train/images
+val: /home/sixseven/sixseven-project/yolo_workspace_v3/valid/images
+test: /home/sixseven/sixseven-project/yolo_workspace_v3/test/images
+nc: 7
+names:
+- Crack
+- Dent
+- Missing_Fastener
+- Skin_Cover
+- Fuselage_damage
+- Wing_damage
+- Engine_damage

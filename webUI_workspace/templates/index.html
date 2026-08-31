@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#007bff">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="stylesheet" href="/static/style.css">
+    <title>Sixseven 機翼損傷檢測系統</title>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Sixseven 機翼損傷檢測系統</h1>
+            <div class="status-bar">
+                <span id="status-indicator" class="status offline"></span>
+                <span id="status-text">連線中...</span>
+            </div>
+        </header>
+
+        <main>
+            <div class="video-section">
+                <video id="camera" autoplay playsinline muted></video>
+                <canvas id="overlay"></canvas>
+                <canvas id="display" style="display:none;"></canvas>
+            </div>
+
+            <div class="controls">
+                <button id="btn-camera" class="btn primary">連線相機</button>
+                <button id="btn-diagnose" class="btn success" disabled>開始診斷</button>
+                <input type="file" id="file-upload" accept="image/*" style="display:none;">
+                <button id="btn-upload" class="btn primary">上傳照片</button>
+            </div>
+
+            <div class="info-panel">
+                <div class="info-item">
+                    <span class="label">FPS:</span>
+                    <span id="fps-display">0</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">模式:</span>
+                    <span id="mode-display">監視模式</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">偵測:</span>
+                    <span id="detection-count">0</span>
+                </div>
+            </div>
+
+            <div id="diagnosis-result" class="diagnosis-panel" style="display:none;">
+                <h3>診斷結果</h3>
+                <div id="diagnosis-content"></div>
+                <button id="btn-close-diagnosis" class="btn secondary">關閉</button>
+            </div>
+        </main>
+
+        <footer>
+            <p>Sixseven 機翼損傷檢測系統 v1.0</p>
+        </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

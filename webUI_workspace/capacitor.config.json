@@ -1,0 +1,27 @@
+{
+  "name": "WingDamageApp",
+  "version": "1.0.0",
+  "description": "Jetson Wing Damage Detection Mobile App",
+  "appId": "com.jetson.wingdamage",
+  "appName": "WingDamage",
+  "webDir": ".",
+  "bundledWebRuntime": false,
+  "plugins": {
+    "@capacitor/camera": {
+      "android": {
+        "cameraPermission": "Allow WingDamage to access your camera for wing inspection."
+      }
+    },
+    "@capacitor/status-bar": {},
+    "@capacitor/splash-screen": {}
+  },
+  "android": {
+    "allowMixedContent": true
+  },
+  "ios": {
+    "allowsInsecureNavigation": ["http://*:*"]
+  },
+  "server": {
+    "hostname": ""
+  }
+}
