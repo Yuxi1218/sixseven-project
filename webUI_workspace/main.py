@@ -446,4 +446,26 @@ async def diagnose_upload(request: Request):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Sixseven Wing Damage Detection WebUI")
+    parser.add_argument("--ssl", action="store_true",
+                        help="啟用 HTTPS（內網 camera 串流需安全來源，非 localhost 需 HTTPS）")
+    parser.add_argument("--certfile", default="certs/cert.pem")
+    parser.add_argument("--keyfile", default="certs/key.pem")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args()
+
+    ssl_kwargs = {}
+    if args.ssl:
+        cert = os.path.join(BASE_DIR, args.certfile)
+        key = os.path.join(BASE_DIR, args.keyfile)
+        if os.path.exists(cert) and os.path.exists(key):
+            ssl_kwargs["ssl_certfile"] = cert
+            ssl_kwargs["ssl_keyfile"] = key
+            print(f"HTTPS 已啟用：https://{args.host}:{args.port}")
+        else:
+            print("⚠️ 找不到憑證，退回 HTTP")
+
+    uvicorn.run(app, host=args.host, port=args.port, **ssl_kwargs)

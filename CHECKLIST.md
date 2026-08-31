@@ -43,6 +43,8 @@
 - [x] model 載入驗證：Jetson 上 `yolo11n.pt` 正確載入 7 類 names（nc=7），val mAP@0.5≈**0.261**。
 - [x] **laptop yolov8n 串流模型判定損壞**：`yolov8n-v3/weights/best.pt` 在筆電 val 出 mAP@0.5≈2.5e-06（loss 發散到 nan）。**不部署、不回傳**；最終維持 train-32 yolo11s 作為部署模型。若需輕量串流模型需重訓（`amp=False`）。
 - [x] **GitHub 同步**：已把 v3 資料集、runs 權重、WebUI、文件/scripts 補 push 到 `origin/main`；大 zip 與舊資料集（raw/v2/temp）以 `.gitignore` 排除。
+- [x] **內網 HTTPS 完成**：`main.py --ssl` + `gen_cert.sh`（動態重生憑證、手機熱點 IP 變動自動處理）+ `start_https.sh`；備援 `setup_ap.sh`（Jetson 自建熱點）。已用 `192.168.0.208:8000` 實測：`/status` 正常、`/infer` 偵測到 `Fuselage_damage`（7 類正確）、`/diagnose_upload` minor 分支立即回應。
+- [ ] 端到端手機測試：實際用手機連熱點 → 瀏覽器點「進階→繼續前往」信任憑證 → 用相機串流偵測（需現場確認，因依賴手機熱點環境）。
 - [ ] train-32 最終 mAP@0.5≈**0.261**（7 類、類別不平衡），比 v2 的 0.457 低（預期），建議後續改善。
 - [ ] 類別不平衡：Skin_Cover(136)、Wing(201)、Engine(136) 明顯少於 Crack(11623)/Dent(9235)/Missing(7192)，可能影響少數類召回，後續可考慮 oversample。
 - [ ] 環境 bug：matplotlib 版本衝突導致 ultralytics 結束繪圖中斷（不影響模型存檔），重訓前需修。

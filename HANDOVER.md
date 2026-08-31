@@ -151,10 +151,34 @@ scripts_finalize_v3_7cls.py  └─ drop 3 類 → reindex 7 類 + 寫 data.yaml
 ```bash
 cd webUI_workspace
 # 先確保 Ollama 服務在 localhost:11434 且已有 gemma3:1b
-./start.sh            # 或 python main.py
-# 瀏覽器開 http://<jetson-ip>:8000
+./start.sh            # 純 HTTP（僅 localhost 可用相機）
+./start_https.sh      # ⭐ 內網 HTTPS（手機熱點/遠端相機必須）
+# 瀏覽器開 http://<jetson-ip>:8000   (HTTP) 或  https://<jetson-ip>:8000  (HTTPS)
 ```
 依賴：見 `requirements.txt`。若在無外網環境，確保已安裝 `ultralytics`、`torch`、`opencv-python`、`fastapi`、`uvicorn`、`requests`。
+
+### ⭐ 內網 HTTPS（手機相機串流專用，2026-09 新增）
+
+瀏覽器 `getUserMedia`（camera）**在非 localhost 的 IP 上必須是 HTTPS** 才能用相機。比賽用手機連熱點時，Jetson 的 IP 是內網 IP（非 localhost），故需要 HTTPS。
+
+- **動態憑證**：手機熱點會讓 Jetson 的 IP 變動，`gen_cert.sh` 啟動時自動抓目前 IP，若 IP 變了就重生含該 IP 的自簽憑證（SAN 含 `IP:<目前IP>, DNS:localhost`）。
+- **啟動**：`./start_https.sh`（內部會先跑 gen_cert.sh 再以 HTTPS 起服務）。
+- **手機體驗**：手機瀏覽器開 `https://<jetson-ip>:8000` 後，需點「進階 → 繼續前往」接受自簽憑證才能用相機。
+- **相關檔案**：
+  - `webUI_workspace/gen_cert.sh`    動態重生憑證（IP 變更自動處理）
+  - `webUI_workspace/start_https.sh`  HTTPS 啟動（含 gen_cert）
+  - `webUI_workspace/certs/`          憑證輸出（cert.pem / key.pem / current_ip）
+  - `webUI_workspace/setup_ap.sh`     [備援] 把 Jetson 設成自身熱點（AP）
+  - `main.py --ssl`                   由 `--ssl`/`--certfile`/`--keyfile` 參數控制
+
+**手機熱點出問題時的備援（Jetson 當 AP）**：
+```bash
+cd webUI_workspace
+sudo ./setup_ap.sh sixseven-ap 12345678   # 自建熱點，手機連它
+./gen_cert.sh                              # 重生含 10.42.0.1 的憑證
+./start_https.sh                           # 手機開 https://10.42.0.1:8000
+```
+> ⚠️ setup_ap.sh 會把 WiFi 介面改為 AP 模式，執行時可能使目前的 SSH/WiFi 連線中斷，僅在現場需要時才跑。
 
 ---
 
