@@ -6,6 +6,10 @@ yolov8n_v3_training_pack.zip
 # WebUI 模型備份
 webUI_workspace/models/*.bak
 
+# TensorRT engine（可由 .pt 重建，不入 git）
+webUI_workspace/models/*.engine
+webUI_workspace/models/*.onnx
+
 # 內網 HTTPS 自簽憑證（含私鑰，勿上傳）
 webUI_workspace/certs/
 
