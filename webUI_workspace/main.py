@@ -71,6 +71,28 @@ class YOLOManager:
         except ImportError:
             pass
 
+    @staticmethod
+    def _resolve_model_path(base_path):
+        """依名稱解析最優模型：TensorRT .engine 優先於 .pt。找不到回 None。"""
+        base = os.path.splitext(base_path)[0]
+        for ext in [".engine", ".pt"]:
+            cand = base + ext
+            if os.path.exists(cand):
+                return cand
+        # 原路徑直接存在也可用
+        if os.path.exists(base_path):
+            return base_path
+        return None
+
+    @staticmethod
+    def _describe_config(path):
+        """回傳模型種類描述（供 log/除錯）。"""
+        if not path:
+            return "N/A"
+        if path.endswith(".engine"):
+            return "TensorRT engine"
+        return os.path.splitext(os.path.basename(path))[0]
+
     def load_models(self):
         global YOLO_LOAD_FAILED
         if YOLO_LOAD_FAILED:
@@ -90,12 +112,24 @@ class YOLOManager:
                 self.device = "cpu"
                 print("Using CPU")
             
-            # Load both models
-            print("Loading yolo11n for streaming...")
-            self.model_n = YOLO(CONFIG["yolo11n_model_path"])
+            # 找出實際存在的模型檔（engine > pt）
+            stream_path = self._resolve_model_path(CONFIG["yolo11n_model_path"])
+            diag_path = self._resolve_model_path(CONFIG["yolo11s_model_path"])
+            print(f"串流模型: {stream_path} ({self._describe_config(stream_path)})")
+            print(f"診斷模型: {diag_path} ({self._describe_config(diag_path)})")
             
-            print("Loading yolo11s for diagnosis...")
-            self.model_s = YOLO(CONFIG["yolo11s_model_path"])
+            if stream_path is None or diag_path is None:
+                print(f"模型檔缺失: stream={stream_path}, diag={diag_path}")
+                YOLO_LOAD_FAILED = True
+                return {"status": "demo_mode"}
+            
+            # 載入串流模型（輕量 / engine 優先，速度優先）
+            print("Loading streaming model...")
+            self.model_n = YOLO(stream_path)
+            
+            # 載入診斷模型（準確優先）
+            print("Loading diagnosis model...")
+            self.model_s = YOLO(diag_path)
             
             self.model_loaded = True
             print("Models loaded!")
