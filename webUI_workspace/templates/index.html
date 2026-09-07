@@ -7,13 +7,16 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="manifest" href="/static/manifest.json">
-    <link rel="stylesheet" href="/static/style.css">
-    <title>Sixseven 機翼損傷檢測系統</title>
+    <link rel="stylesheet" href="/static/style.css?v=12">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>機翼損傷檢測系統</title>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Sixseven 機翼損傷檢測系統</h1>
+            <h1 id="title">機翼損傷檢測系統</h1>
             <div class="status-bar">
                 <span id="status-indicator" class="status offline"></span>
                 <span id="status-text">連線中...</span>
@@ -22,16 +25,19 @@
 
         <main>
             <div class="video-section">
-                <video id="camera" autoplay playsinline muted></video>
+                <video id="camera" autoplay playsinline muted style="display:none;"></video>
+                <video id="remote" autoplay playsinline muted style="display:none;"></video>
+                <img id="stream" alt="串流">
                 <canvas id="overlay"></canvas>
-                <canvas id="display" style="display:none;"></canvas>
+            </div>
+
+            <div id="fps-warning" class="fps-warning" style="display:none;">
+                ⚠️ 幀率過低（&lt;10 FPS），畫面可能不流暢
             </div>
 
             <div class="controls">
-                <button id="btn-camera" class="btn primary">連線相機</button>
-                <button id="btn-diagnose" class="btn success" disabled>開始診斷</button>
-                <input type="file" id="file-upload" accept="image/*" style="display:none;">
-                <button id="btn-upload" class="btn primary">上傳照片</button>
+                <button id="btn-live" class="btn danger">關閉即時診斷</button>
+                <button id="btn-diagnose" class="btn success">開始診斷</button>
             </div>
 
             <div class="info-panel">
@@ -41,7 +47,7 @@
                 </div>
                 <div class="info-item">
                     <span class="label">模式:</span>
-                    <span id="mode-display">監視模式</span>
+                    <span id="mode-display">即時診斷</span>
                 </div>
                 <div class="info-item">
                     <span class="label">偵測:</span>
@@ -52,15 +58,18 @@
             <div id="diagnosis-result" class="diagnosis-panel" style="display:none;">
                 <h3>診斷結果</h3>
                 <div id="diagnosis-content"></div>
-                <button id="btn-close-diagnosis" class="btn secondary">關閉</button>
+                <button id="btn-close-diagnosis" class="btn primary">繼續拍攝</button>
             </div>
+
+            <div id="webrtc-debug" class="webrtc-debug" style="display:none;"></div>
+
         </main>
 
         <footer>
-            <p>Sixseven 機翼損傷檢測系統 v1.0</p>
+            <p>sixseven-project of AirCraft / ver.Qi202609080153</p>
         </footer>
     </div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=15"></script>
 </body>
 </html>

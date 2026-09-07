@@ -2,8 +2,8 @@ train: ../train/images
 val: ../valid/images
 test: ../test/images
 
-nc: 2
-names: ['Missing Fastener', 'dent']
+nc: 3
+names: ['Missing Fastener', 'dent', 'Crack']
 
 roboflow:
   workspace: polyu-7fox0

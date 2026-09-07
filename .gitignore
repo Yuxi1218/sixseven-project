@@ -21,6 +21,9 @@ bus.jpg
 yolo_workspace_raw/
 yolo_workspace_v2/
 
+# 現役平衡資料集（2.37GB，超過 GitHub 100MB 上限，不入 git；本機與筆電各自保留）
+yolo_workspace_v4_bal/
+
 # Python
 __pycache__/
 *.pyc
