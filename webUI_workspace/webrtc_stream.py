@@ -9,12 +9,24 @@ import json
 import logging
 import time
 
-from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
+from aiortc import (
+    RTCPeerConnection,
+    RTCConfiguration,
+    RTCSessionDescription,
+    VideoStreamTrack,
+)
+_CONF_NO_STUN = RTCConfiguration(iceServers=[])
 from aiortc.mediastreams import VIDEO_TIME_BASE, convert_timebase, VideoFrame
 import numpy as np
 import cv2
 
 logger = logging.getLogger("webrtc")
+
+
+def _ts():
+    """給 log 加時戳，方便量測 WebRTC 建線各階段耗時。"""
+    return time.strftime("%H:%M:%S")
+
 
 _peers = set()
 _upstream_img = None          # 最近手機上游相機幀 (BGR ndarray)
@@ -121,7 +133,7 @@ async def _consume_upstream(track):
             _upstream_seq += 1
             got += 1
             if got == 1 or got % 50 == 0:
-                print(f"[webrtc] 上游已收 {got} 幀 (seq={_upstream_seq}) 尺寸={img.shape[1]}x{img.shape[0]}")
+                print(f"[{_ts()}][webrtc] 上游已收 {got} 幀 (seq={_upstream_seq}) 尺寸={img.shape[1]}x{img.shape[0]}")
         except Exception as e:
             print(f"[webrtc] upstream decode err: {e}")
         await asyncio.sleep(0)
@@ -141,7 +153,7 @@ async def create_offer():
     """建立 pc：下游推 annotated；上游等手機相機 track。等 ICE gathering 完成後回傳完整 SDP。"""
     global _loop
     _loop = asyncio.get_running_loop()
-    pc = RTCPeerConnection()
+    pc = RTCPeerConnection(configuration=_CONF_NO_STUN)
     _peers.add(pc)
 
     pc.addTrack(AnnotatedFrameTrack(fps=_downstream_fps, upscale=_downstream_upscale))
@@ -151,45 +163,54 @@ async def create_offer():
 
     @pc.on("datachannel")
     def _on_datachannel(channel):
-        print(f"[webrtc] data channel: {channel.label} (id={channel.id})")
+        print(f"[{_ts()}][webrtc] data channel: {channel.label} (id={channel.id})")
         _data_channels.add(channel)
 
     @pc.on("track")
     def _on_track(track):
-        print(f"[webrtc] upstream track: {track.kind}")
+        print(f"[{_ts()}][webrtc] upstream track: {track.kind}")
         if track.kind == "video":
             asyncio.ensure_future(_consume_upstream(track))
 
     @pc.on("connectionstatechange")
     async def _on_state():
-        print(f"[webrtc] state={pc.connectionState}")
+        print(f"[{_ts()}][webrtc] state={pc.connectionState}")
         if pc.connectionState in ("failed", "closed", "disconnected"):
             _peers.discard(pc)
             _data_channels.clear()  # 此 pc 關閉，清掉所有 data channel（單一 peer 場景）
             _notify_peer_closed()
 
+    print(f"[{_ts()}][webrtc] create_offer: 建立 pc（下游 fps={_downstream_fps}）")
+    _t0 = time.monotonic()
     offer = await pc.createOffer()
+    print(f"[{_ts()}][webrtc] create_offer:createOffer {time.monotonic()-_t0:.3f}s")
+    _t1 = time.monotonic()
     await pc.setLocalDescription(offer)
+    print(f"[{_ts()}][webrtc] create_offer:setLocalDescription {time.monotonic()-_t1:.3f}s")
 
     # 等 ICE gathering 完成，確保 host candidate 併入 SDP（LAN 直連不需 trickle）
+    _t2 = time.monotonic()
     if pc.iceGatheringState != "complete":
         done = asyncio.Event()
         pc.on("icegatheringstatechange", lambda: done.set())
         try:
             await asyncio.wait_for(done.wait(), timeout=2.0)
         except asyncio.TimeoutError:
-            pass
+            print(f"[{_ts()}][webrtc] create_offer: ICE gathering 逾時(2s)")
+    print(f"[{_ts()}][webrtc] create_offer:ICE-gather {time.monotonic()-_t2:.3f}s (state={pc.iceGatheringState})")
 
     sdp = pc.localDescription.sdp if pc.localDescription else offer.sdp
+    print(f"[{_ts()}][webrtc] create_offer: 完成 ICE gathering → 回傳 offer (總計 {time.monotonic()-_t0:.3f}s)")
     return sdp, pc
 
 
 async def set_answer(pc, answer_sdp):
+    print(f"[{_ts()}][webrtc] set_answer: 收到 answer，設入 pc")
     answer = RTCSessionDescription(sdp=answer_sdp, type="answer")
     await pc.setRemoteDescription(answer)
     # 診斷：查看對端 transceiver direction & 是否有 receiver
     for tr in pc.getTransceivers():
-        print(f"[webrtc] transceiver mid={tr.mid} direction={tr.direction} "
+        print(f"[{_ts()}][webrtc] transceiver mid={tr.mid} direction={tr.direction} "
               f"receiver={tr.receiver is not None} sender={tr.sender is not None} "
               f"recv_track={tr.receiver.track.kind if tr.receiver and tr.receiver.track else '無'}")
 
@@ -197,6 +218,17 @@ async def set_answer(pc, answer_sdp):
 async def close_peer(pc):
     await pc.close()
     _peers.discard(pc)
+
+
+async def close_all():
+    """關閉所有 peer（服務關機時呼叫，避免 uvicorn 卡在等待連線關閉）。"""
+    for pc in list(_peers):
+        try:
+            await pc.close()
+        except Exception:
+            pass
+    _peers.clear()
+    _data_channels.clear()
 
 
 _peer_closed_callback = None

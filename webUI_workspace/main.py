@@ -17,6 +17,7 @@ for mod in ['block', 'tasks']:
 import base64
 import time
 import threading
+import asyncio
 import cv2
 import numpy as np
 from PIL import Image as PILImage, ImageDraw, ImageFont
@@ -95,6 +96,7 @@ class YOLOManager:
         self.annotated_frame = None
         self.annotated_seq = 0
         self.current_frame_lock = threading.Lock()
+        self.infer_lock = threading.Lock()
         self.fps = 0
         self.fps_counter = 0
         self.last_fps_time = time.time()
@@ -218,13 +220,16 @@ class YOLOManager:
             # yolo11n for streaming, yolo11s for diagnosis
             model = self.model_s if use_large else self.model_n
             
-            results = model.predict(
-                img,
-                conf=conf if conf is not None else CONFIG["confidence"],
-                imgsz=imgsz if imgsz is not None else CONFIG["img_size"],
-                device=self.device,
-                verbose=False,
-            )
+            # 序列化 GPU 推論：live 執行緒與診斷執行緒共用同一顆模型實例，
+            # 並行 predict 會觸發 CUDA "stream is capturing" 錯誤並互相拖慢
+            with self.infer_lock:
+                results = model.predict(
+                    img,
+                    conf=conf if conf is not None else CONFIG["confidence"],
+                    imgsz=imgsz if imgsz is not None else CONFIG["img_size"],
+                    device=self.device,
+                    verbose=False,
+                )
             
             if len(results) == 0:
                 return {"detections": [], "annotated_image": img, "fps": self.fps}
@@ -381,7 +386,25 @@ async def lifespan(app: FastAPI):
     print("Starting Jetson Wing Damage Detection System...")
     model_status = yolo_manager.load_models()
     print(f"Model status: {model_status}")
+    # 開機暖機：先跑一次推論，把 TensorRT engine 的 lazy load（首次約 3 秒）移到開機，
+    # 避免第一個 /webrtc/offer 或 /infer_hd 被 engine 冷啟動卡住（造成即時診斷「很慢」）
+    if yolo_manager.model_loaded:
+        try:
+            import numpy as _np
+            _t = time.time()
+            yolo_manager.infer(_np.zeros((480, 640, 3), dtype=_np.uint8),
+                               use_large=True, conf=CONFIG["confidence"], imgsz=640,
+                               annotate=False)
+            print(f"[warmup] engine 暖機完成 {time.time()-_t:.2f}s")
+        except Exception as e:
+            print(f"[warmup] 暖機失敗（不影響服務）: {e}")
     yield
+    # 關機：主動關閉所有 WebRTC peer，否則 uvicorn 會卡在「等待連線關閉」直到逾時
+    try:
+        await webrtc.close_all()
+        print("[shutdown] 已關閉所有 WebRTC peer")
+    except Exception as e:
+        print(f"[shutdown] 關閉 peer 失敗（不影響）: {e}")
 
 
 app = FastAPI(
@@ -497,6 +520,8 @@ def _web_infer_loop():
                 continue
             last_seq = seq
             img_h, img_w = img.shape[:2]
+            if processed == 0:
+                print(f"[{time.strftime('%H:%M:%S')}][web-infer] 收到第一幀上游開始推理", flush=True)
             if processed % 60 == 0:
                 print(f"[web-infer] up frame shape={img.shape} (h={img_h} w={img_w})", flush=True)
             # live 走較準確的 7 類 yolo11s；annotate=False 因為前端是本地相機+canvas 疊框，
@@ -539,6 +564,7 @@ async def webrtc_offer():
     """手機請求 offer：Jetson 建 pc + 啟用連續推理，回傳 SDP offer。"""
     global _infer_task, _infer_running
     try:
+        print(f"[{time.strftime('%H:%M:%S')}] /webrtc/offer 進入")
         webrtc.set_peer_closed_callback(_stop_web_infer)
         if not _infer_running:
             _infer_running = True
@@ -550,6 +576,7 @@ async def webrtc_offer():
         sdp, pc = await webrtc.create_offer()
         ident = str(id(pc))
         _peer_map[ident] = pc
+        print(f"[{time.strftime('%H:%M:%S')}] /webrtc/offer 回傳 SDP")
         return JSONResponse({"sdp": sdp, "ident": ident})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"offer failed: {e}")
@@ -566,6 +593,7 @@ async def webrtc_answer(request: Request):
         if not sdp or ident not in _peer_map:
             raise HTTPException(status_code=400, detail="bad answer")
         pc = _peer_map.pop(ident)
+        print(f"[{time.strftime('%H:%M:%S')}] /webrtc/answer 進入 (ident={ident[-6:]})")
         await webrtc.set_answer(pc, sdp)
         return JSONResponse({"ok": True})
     except HTTPException:
@@ -584,7 +612,7 @@ async def infer(request: Request):
             raise HTTPException(status_code=400, detail="No image provided")
 
         image_data = base64.b64decode(image_b64)
-        result = yolo_manager.infer(image_data, use_large=False)
+        result = await asyncio.to_thread(yolo_manager.infer, image_data, use_large=False)
 
         if result is None:
             raise HTTPException(status_code=500, detail="Inference failed")
@@ -612,27 +640,29 @@ async def infer_hd(request: Request):
             raise HTTPException(status_code=400, detail="Invalid image")
 
         # 跑 3 次，合併 detections（下次格式，取最高信心 + 中位框）
-        merged = {}
-        det_tuple_list = []  # (conf, cls, bbox, annotated)
-        annotated = None
-        for _ in range(3):
-            result = yolo_manager.infer(img, use_large=True, conf=CONFIG["confidence"], imgsz=640)
-            if result is None:
-                raise HTTPException(status_code=500, detail="Inference failed")
-            annotated = result["annotated_image"]
-            for d in result["detections"]:
-                key = f'{d["class"]}_{d["bbox"]}'
-                det_tuple_list.append((d["confidence"], d["class"], d["bbox"]))
-                if key not in merged or d["confidence"] > merged[key]["confidence"]:
-                    merged[key] = {"class": d["class"], "confidence": d["confidence"], "bbox": d["bbox"]}
+        # 注意：重推論改到執行緒池執行，否則會阻塞事件迴圈，讓同時進來的
+        # /webrtc/offer、/webrtc/answer、track 全部卡住（即時診斷變得「很慢」）
+        def _run_hd():
+            merged = {}
+            annotated = None
+            for _ in range(3):
+                result = yolo_manager.infer(img, use_large=True, conf=CONFIG["confidence"], imgsz=640)
+                if result is None:
+                    raise RuntimeError("Inference failed")
+                annotated = result["annotated_image"]
+                for d in result["detections"]:
+                    key = f'{d["class"]}_{d["bbox"]}'
+                    if key not in merged or d["confidence"] > merged[key]["confidence"]:
+                        merged[key] = {"class": d["class"], "confidence": d["confidence"], "bbox": d["bbox"]}
+            detections = list(merged.values())
+            detections.sort(key=lambda x: x["confidence"], reverse=True)
+            annotated_zh = _draw_zh_boxes(img.copy(), detections) if (annotated is not None and detections) else annotated
+            return detections, annotated_zh
 
-        detections = list(merged.values())
-        # 信心由高至低排序
-        detections.sort(key=lambda x: x["confidence"], reverse=True)
-
-        # 用最後一次的 annotated 圖（含所有框）
-        if annotated is not None and detections:
-            annotated = _draw_zh_boxes(img.copy(), detections)
+        try:
+            detections, annotated = await asyncio.to_thread(_run_hd)
+        except RuntimeError:
+            raise HTTPException(status_code=500, detail="Inference failed")
 
         print(f"[infer_hd×3] 圖{img.shape[1]}x{img.shape[0]} 合併後 {len(detections)} 個: " +
               "; ".join(f"{d['class']}({d['confidence']:.2f})" for d in detections))
@@ -640,7 +670,7 @@ async def infer_hd(request: Request):
             "success": True,
             "annotated_image": _encode_jpeg(annotated, 90),
             "detections": detections,
-            "fps": result["fps"] if result else 0,
+            "fps": 0,
         })
     except HTTPException:
         raise
@@ -849,4 +879,5 @@ if __name__ == "__main__":
     if ssl_kwargs.get("ssl_certfile") and args.redirect_port:
         _start_http_redirect(args.redirect_port, args.port)
 
-    uvicorn.run(app, host=args.host, port=args.port, **ssl_kwargs)
+    uvicorn.run(app, host=args.host, port=args.port,
+                timeout_graceful_shutdown=3, **ssl_kwargs)

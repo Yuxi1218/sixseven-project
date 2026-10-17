@@ -13,6 +13,9 @@ WorkingDirectory=/home/sixseven/sixseven-project/webUI_workspace
 Environment=HOME=/home/sixseven
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 /home/sixseven/sixseven-project/webUI_workspace/main.py --ssl
+# 關機：SIGTERM 後最多等 10 秒，逾時直接 SIGKILL（避免卡在 waiting for connections）
+TimeoutStopSec=10
+KillMode=mixed
 Restart=always
 RestartSec=5
 StandardOutput=append:/tmp/opencode/https_webrtc27.log

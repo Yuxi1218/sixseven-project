@@ -247,7 +247,7 @@ class WingDetectionApp {
                 await new Promise((resolve) => {
                     const onDone = () => { pc.removeEventListener('icegatheringstatechange', onDone); resolve(); };
                     pc.addEventListener('icegatheringstatechange', onDone);
-                    setTimeout(resolve, 2000); // 保險逾時
+                    setTimeout(resolve, 800); // 保險逾時（host-only 幾乎瞬時完成）
                 });
             }
             this.dbg('送出 answer');
@@ -350,11 +350,14 @@ class WingDetectionApp {
                 if (!params.encodings || params.encodings.length === 0) {
                     params.encodings = [{}];
                 }
-                params.encodings[0].maxWidth = 1920;
-                params.encodings[0].maxHeight = 1440;
+                // 送出端降到一半解析度：Jetson 端是「軟體解碼」(aiortc/PyAV，無 NVDEC)，
+                // 1920x1440 每幀軟解太重、會卡事件迴圈拖慢即時框。
+                // 本地預覽仍是原生高解析度，框以歸一化座標疊回，畫質不受影響。
+                params.encodings[0].scaleResolutionDownBy = 2;
                 params.encodings[0].maxFramerate = (params.encodings[0].maxFramerate || 30);
+                params.degradationPreference = 'maintain-framerate';
                 await sender.setParameters(params);
-                this.dbg('boost: 已設上游 send → max 1920x1440@30');
+                this.dbg('boost: 上游送出 scaleResolutionDownBy=2（約 960x720）@30');
             } catch (e) {
                 this.dbg('boost 失敗: ' + e.message);
             }
