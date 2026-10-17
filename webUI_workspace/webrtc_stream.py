@@ -24,12 +24,16 @@ _frame_lock = None            # asyncio.Lock
 _downstream_getter = None     # () -> BGR frame 給下游推流
 _data_channels = set()        # 開放中的 data channel（推送偵測框資料）
 _loop = None                  # aiortc 所在的 asyncio event loop
+_downstream_fps = 3           # 下游推流 fps（live 前端不顯示下游，故設低以省 CPU）
+_downstream_upscale = False   # 是否放大到 HD（不顯示時不需要）
 
 
-def init(frame_getter):
+def init(frame_getter, downstream_fps=3, downstream_upscale=False):
     """初始化：設定下游幀來源 getter 與鎖。在事件迴圈中呼叫。"""
-    global _downstream_getter, _frame_lock
+    global _downstream_getter, _frame_lock, _downstream_fps, _downstream_upscale
     _downstream_getter = frame_getter
+    _downstream_fps = downstream_fps
+    _downstream_upscale = downstream_upscale
     if _frame_lock is None:
         _frame_lock = asyncio.Lock()
 
@@ -54,11 +58,18 @@ def push_detections(payload):
 
 
 class AnnotatedFrameTrack(VideoStreamTrack):
-    """下游：取 annotated 幀，縮放至高畫質後推流。"""
+    """下游：取 annotated 幀推流。
 
-    def __init__(self, fps=28, out_width=1280, out_height=960):
+    注意：live 模式前端顯示的是「本地相機 + canvas 疊框」，這個下游畫面並不會被顯示；
+    但仍必須保留這條 video m-line，因為手機上游相機 track 是依附在同一條 m-line 上
+    （Jetson 發 offer：video sendonly；手機把相機 track 加進同一條 → sendrecv）。
+    因此刻意用低 fps、預設不放大，把 CPU/編碼成本降到最低。
+    """
+
+    def __init__(self, fps=None, upscale=None, out_width=640, out_height=480):
         super().__init__()
-        self._fps = fps
+        self._fps = fps if fps else _downstream_fps
+        self._upscale = _downstream_upscale if upscale is None else upscale
         self._start = time.monotonic()
         self._idx = 0
         self._out_w = out_width
@@ -81,8 +92,8 @@ class AnnotatedFrameTrack(VideoStreamTrack):
                 img = np.zeros((self._out_h, self._out_w, 3), dtype=np.uint8)
         if img.ndim == 2:
             img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-        # 畫質提升：若上游解析度小於 HD 目標則向上放大；已是高解析度則維持原尺寸
-        if img.shape[1] < 1280:
+        # 只在需要（且開啟）時才放大到 HD；不顯示時維持原生尺寸最省 CPU
+        if self._upscale and img.shape[1] < 1280:
             scale = max(1280 / img.shape[1], 960 / img.shape[0])
             new_w = int(round(img.shape[1] * scale / 2) * 2)
             new_h = int(round(img.shape[0] * scale / 2) * 2)
@@ -133,7 +144,7 @@ async def create_offer():
     pc = RTCPeerConnection()
     _peers.add(pc)
 
-    pc.addTrack(AnnotatedFrameTrack())
+    pc.addTrack(AnnotatedFrameTrack(fps=_downstream_fps, upscale=_downstream_upscale))
     # 建立 data channel：手機端接收偵測框座標+標籤（做法A：原生畫質疊框）
     dc = pc.createDataChannel("detections")
     _data_channels.add(dc)

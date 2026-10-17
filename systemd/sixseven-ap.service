@@ -1,0 +1,13 @@
+[Unit]
+Description=Sixseven WiFi Hotspot (AirCraft67Team) at boot
+Wants=NetworkManager.service
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/home/sixseven/sixseven-project/tools/ap_boot.sh
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

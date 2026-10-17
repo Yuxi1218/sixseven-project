@@ -10,7 +10,7 @@
 #
 # 用法：sudo ./setup_ap.sh <SSID> [密碼(至少8碼)]
 #   例： sudo ./setup_ap.sh sixseven-ap 12345678
-# 手機連上後：開 https://10.42.0.1:8000
+# 手機連上後：開 https://10.42.0.1
 
 set -e
 
@@ -43,5 +43,5 @@ nmcli connection add type wifi ifname "$IFACE" \
 
 nmcli connection up "$SSID" >/dev/null 2>&1
 echo "✅ 熱點已開啟：SSID=$SSID"
-echo "   手機連上後，瀏覽器開 https://$AP_IP:8000"
+echo "   手機連上後，瀏覽器開 https://$AP_IP"
 echo "   （需重跑 ./gen_cert.sh 讓憑證含 10.42.0.1，再 ./start_https.sh）"

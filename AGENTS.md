@@ -15,19 +15,32 @@
 | 訓練筆電 | `alice@192.168.0.111` / `1` |
 | 筆電 venv | `~/ml/bin/python`（torch + ultralytics + cv2 5.0.0） |
 | 主系統 | FastAPI + Ultralytics YOLO11 + Ollama(gemma3:1b) + WebRTC(aiortc) |
-| HTTPS 網頁 | `https://10.42.0.1:8000`（現場熱點 AirCraft67Team） |
+| HTTPS 網頁 | `https://10.42.0.1`（或主機名 `sixseven-project`／`sixseven-project.local`，皆免打埠號）。輸入 IP/主機名會由埠 80 自動 301 轉到 https |
+| 熱點 | SSID `AirCraft67Team` / 密碼 `67676767` / `10.42.0.1`，開機由 `sixseven-ap.service` 自動拉起 |
 
 SSH 到 Jetson 本機即可作業（本機就是伺服器）。要連筆電用 paramiko（本機無 sshpass，`/tmp/opencode/sshpass` 開機會被清）。
 
 ## 1.1 開機自啟動（systemd）
 
+全部服務檔在專案 `systemd/`，可用 `tools/setup_env.sh` 一鍵還原到新系統：
+
 - **`sixseven-webrtc.service`**：開機自動啟動 webUI（HTTPS），崩潰自動重拉（Restart=always）。
-- 用現有 10 年有效期證書 `webUI_workspace/certs/cert.pem`，**不會每次重簽**。
+- **`sixseven-ap.service`**：開機自動拉起熱點 `AirCraft67Team`（跑 `tools/ap_boot.sh`，幂等、有重試）。
+  ⚠️ 開機自啟有效，但**桌面右上角 WiFi 面板（gnome-control-center）手動切網路會把熱點關掉**，這是人為操作不是故障。
+- **`jetson-clocks.service`**：開機把 GPU/CPU 定頻到最高（效能）。
+- **`ollama.service`**：本機 LLM 診斷服務。
+- 用現有 10 年有效期證書 `webUI_workspace/certs/cert.pem`，**不會每次重簽**（`gen_cert.sh` 只在 SAN 變動時重生）。
+- **埠號 = 443**（`https://10.42.0.1`，免打埠號），另在埠 **80** 開 HTTP→HTTPS 301 轉址（`main.py` `--redirect-port`，設 0 可關）。
+  `main.py --port` 預設 443；為讓 `sixseven` 這種非 root 使用者能綁 443/80，已設
+  `/etc/sysctl.d/99-unprivileged-ports.conf` 的 `net.ipv4.ip_unprivileged_port_start=80`
+  （**勿改回 1024**，否則服務起不來）。
 - 指令：
   ```bash
-  sudo systemctl status sixseven-webrtc   # 看狀態
-  sudo systemctl restart sixseven-webrtc  # 重啟服務（新做法）
-  sudo systemctl disable sixseven-webrtc  # 關閉開機自啟
+  sudo systemctl status sixseven-webrtc    # webUI 狀態
+  sudo systemctl restart sixseven-webrtc   # 重啟 webUI
+  sudo systemctl status sixseven-ap        # 熱點狀態
+  sudo systemctl restart sixseven-ap       # 重新拉起熱點
+  sudo systemctl restart jetson-clocks     # 重新定頻（oneshot 用 restart 才會重跑）
   ```
 - 舊法 `bash /tmp/opencode/start_webrtc.sh` 仍可用（偵錯 log 不同），但正式用 systemd。
 
@@ -55,7 +68,11 @@ ls /tmp/opencode/deployed.lock                  # 存在=模型已部署完成
 tail -6 /tmp/opencode/train_monitor.log
 
 # 檢查服務健康
-curl -k https://10.42.0.1:8000/status          # 回傳 yolo/ollama 狀態 JSON
+curl -k https://10.42.0.1/status              # 回傳 yolo/ollama 狀態 JSON
+curl -sI http://10.42.0.1/                     # 應回 301 → https://10.42.0.1/
+
+# 全新系統一鍵建置（換 SD 卡、重刷 JetPack 後）
+sudo bash tools/setup_env.sh                   # 加 --with-engine 會多建 TRT engine
 ```
 
 ## 3. 目前狀態（2026-09-08）
@@ -64,8 +81,16 @@ curl -k https://10.42.0.1:8000/status          # 回傳 yolo/ollama 狀態 JSON
 - 服務運行中；`deployed.lock` 已建立（watcher 不會重複部署）。
 - 疊框偏移 bug 已修：`webrtc_stream.py` 上游收幀是**正確版**（無轉置、無 debug 存圖）。
 - **完整資料集已拉回本機**：`yolo_workspace_v4_bal/`（train 17,123 / valid 801，7 類平衡，2.37GB）＋ 筆電同名資料夾同步。
-- **開機自啟已設**：`sixseven-webrtc.service`（systemd），webUI+HTTPS 開機自動起來、崩潰自拉。
-- 專案結構已整理：文件在 `docs/`、工具在 `tools/`、原始預訓練模型在 `pretrained/`。
+- **開機自啟已設**：`sixseven-webrtc.service`（webUI+HTTPS）、`sixseven-ap.service`（熱點）、`jetson-clocks.service`（GPU 定頻）、`ollama.service`。
+- **推論加速**：已建 `models/yolo11s.engine`（TensorRT FP16、imgsz=640）約 **11.4ms/張**（原 `.pt` 約 30ms，快 ~2.7x）。
+  `main.py::_resolve_model_path` 自動優先 `.engine`，但若 `.pt` 比 engine 新（重新部署過）會退回 `.pt` 並提示重建。
+- **即時診斷延遲最佳化**：live 前端只顯示「本地相機 + canvas 疊框」，Jetson 下游畫面根本不會被顯示，
+  但舊版仍每幀畫中文標註（PIL ~4-8ms）＋把下游放大到 1280x960（~15ms）＋軟體 VP8 28fps 編碼。
+  已改：live 迴圈 `infer(annotate=False)`（不畫框）＋下游 `downstream_fps=3`、`downstream_upscale=False`
+  （見 `main.py` CONFIG 41~42 行）。每幀 Jetson 工作 **~33ms → ~15ms**，loop 內 `[web-infer]` log 會印
+  `avg_infer=..ms loop=..fps` 可即時觀察。
+  ⚠️ **不可把下游 video track 整個移除**：手機上游相機 track 依附在同一條 video m-line 上，拿掉會讓 live 上游收不到畫面。
+- 專案結構已整理：文件在 `docs/`、工具在 `tools/`、systemd 服務檔在 `systemd/`、原始預訓練模型在 `pretrained/`。
 
 ## 4. 防呆規則（改了會出事，勿動）
 
@@ -77,15 +102,17 @@ curl -k https://10.42.0.1:8000/status          # 回傳 yolo/ollama 狀態 JSON
    - `*/5 * * * * /usr/bin/python3 /home/sixseven/sixseven-project/tools/deploy_watcher.py`（自動部署）
    - `*/15 * * * * /usr/bin/python3 /home/sixseven/sixseven-project/tools/train_monitor.py >/dev/null 2>&1`（進度監控）
 5. **LLM gate**：`MAJOR_CLASSES`（main.py:641）決定何時叫 Ollama；輕微類別直接回應。不要把 `_should_invoke_llm` 拿掉（會讓每次診斷都等 1~2 分鐘）。
+6. **`/etc/sysctl.d/99-unprivileged-ports.conf`**：`net.ipv4.ip_unprivileged_port_start=80`，勿改回 1024，否則非 root 的服務綁不到 443/80 而起不來。
+7. **`webUI_workspace/gen_cert.sh`**：SAN 一定要含熱點固定 IP `10.42.0.1`，否則手機開 `https://10.42.0.1` 會憑證不符。
 
 ## 5. 程式碼速查（改哪看哪）
 
 | 想改 | 檔案:位置 |
 |---|---|
-| 信心門檻/解析度/模型路徑 | `webUI_workspace/main.py` `CONFIG`（31~41） |
+| 信心門檻/解析度/模型路徑/下游 fps | `webUI_workspace/main.py` `CONFIG`（31~42，`downstream_fps`/`downstream_upscale`） |
 | 類別中文 | `main.py` `CLASS_NAMES_ZH`（45~53） |
 | 疊框縮放運算 | `webUI_workspace/static/app.js` `_coverRect()`（284~296）與 `drawDetections()`（298~326） |
-| WebRTC 上下游 | `webUI_workspace/webrtc_stream.py` |
+| WebRTC 上下游（下游 `AnnotatedFrameTrack`） | `webUI_workspace/webrtc_stream.py` |
 | 定格診斷 3 次合併 | `main.py` `infer_hd`（576~622） |
 | 網頁結構 | `webUI_workspace/templates/index.html` |
 
@@ -103,9 +130,11 @@ curl -k https://10.42.0.1:8000/status          # 回傳 yolo/ollama 狀態 JSON
 ## 7. 驗收方式（改完如何確定沒壞）
 
 - `python3 -m py_compile` 通過。
-- 服務起來後 `tail -f` log 見到 `Models loaded!` 與 `Uvicorn running on https://0.0.0.0:8000`。
-- `curl -k https://10.42.0.1:8000/status` 回 `{"yolo_loaded": true, ...}`。
-- 手機連熱點開 https://10.42.0.1:8000 → 允許相機 → 綠框對準物體邊緣 = 疊框正確。
+- 服務起來後 `tail -f` log 見到 `Models loaded!` 與 `Uvicorn running on https://0.0.0.0:443`。
+- `curl -k https://10.42.0.1/status` 回 `{"yolo_loaded": true, ...}`。
+- `curl -sI http://10.42.0.1/` 回 `301` → `https://10.42.0.1/`（手機輸入 IP 免打 https）。
+- 熱點用戶端可用主機名連：`http://sixseven-project` → 301 → `https://sixseven-project`（AP 的 dnsmasq 已設 `address=/sixseven-project/10.42.0.1`）。
+- 手機連熱點開 https://10.42.0.1 → 允許相機 → 綠框對準物體邊緣 = 疊框正確。
 - 定格診斷：按「開始診斷」能出框好圖＋報告，且不會卡超過 2 分鐘。
 
 ## 8. 交接文件索引（全部在 `docs/`）

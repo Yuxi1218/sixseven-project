@@ -56,7 +56,7 @@
 
 ## 1.3 常見「為什麼會這樣」（一句話解答）
 
-1. **為什麼手機一定要用 https？** 瀏覽器政策：非 https 不給開相機。用 `https://10.42.0.1:8000`。
+1. **為什麼手機一定要用 https？** 瀏覽器政策：非 https 不給開相機。用 `https://10.42.0.1`（預設 443 埠，免打埠號）。
 2. **為什麼有時看不到多個損傷？** 兩個模式都用同一個模型，看不到多半是「模型沒偵測到」（小類樣本少），不是顯示 bug。
 3. **為什麼定格診斷比較穩？** 同一張圖跑 3 次再合併（main.py:592），漏檢率低很多。
 4. **為什麼網頁上掛 `?v=15`？** 強制瀏覽器不舊版快取，現場永遠拿到最新前端。
@@ -109,7 +109,7 @@ tail -f /tmp/opencode/https_webrtc27.log   # Ctrl+C 跳出
 1. 開 Jetson（插電 → 按電源），等 1~2 分鐘開完
 2. 手機 WiFi 清單看到 AirCraft67Team = 熱點正常
 3. 手機連 AirCraft67Team（密碼見 4.2）
-4. 開瀏覽器（Chrome / Safari）→ 網址 https://10.42.0.1:8000
+4. 開瀏覽器（Chrome / Safari）→ 網址 https://10.42.0.1
 5. 瀏覽器警告「不安全」→ 點「進階 → 繼續前往」（憑證自己做的，正常）
 6. 允許使用相機 → 看到畫面 + 綠框 = 完成！
 ```
@@ -152,7 +152,7 @@ tail -f /tmp/opencode/https_webrtc27.log   # Ctrl+C 跳出
 ## 4.3 現場熱點
 
 - SSID `AirCraft67Team`；主機 IP `10.42.0.1`
-- 網頁：`https://10.42.0.1:8000`
+- 網頁：`https://10.42.0.1`（預設 443 埠，免打埠號）
 - 手機拿到 `10.42.0.x` 開頭的 IP 都算正常（DHCP 分配）
 
 ## 4.4 熱點救援（AirCraft67Team 消失時，給做得到的人）
@@ -160,7 +160,7 @@ tail -f /tmp/opencode/https_webrtc27.log   # Ctrl+C 跳出
 ```bash
 # 在主機上重建熱點（注意把 <熱點密碼> 換成實際密碼）
 sudo nmcli connection delete AirCraft67Team 2>/dev/null
-sudo nmcli connection add type wifi ifname wlan0 con-name AirCraft67Team \
+sudo nmcli connection add type wifi ifname wlP1p1s0 con-name AirCraft67Team \
   ssid AirCraft67Team mode ap \
   802-11-wireless.band bg 802-11-wireless.channel 1 \
   802-11-wireless.powersave 2 \
@@ -203,7 +203,7 @@ sudo nmcli connection up AirCraft67Team
 
 ## 6.1 main.py — 總店長（最重要的主程式）
 
-1. **開頭（main.py:1~41）** 載入工具（OpenCV 影像、FastAPI 網頁伺服器、PyTorch AI）。`CONFIG` 是設定表：模型路徑、信心門檻 0.25、用哪顆 GPU。main.py:8~15 讓新版 PyTorch 允許讀 AI 檢查點（不算浪費的安全手續）。
+1. **開頭（main.py:1~41）** 載入工具（OpenCV 影像、FastAPI 網頁伺服器、PyTorch AI）。`CONFIG` 是設定表：模型路徑、信心門檻 0.15、用哪顆 GPU。main.py:8~15 讓新版 PyTorch 允許讀 AI 檢查點（不算浪費的安全手續）。
 2. **翻譯表（main.py:43~53）** `CLASS_NAMES_ZH`：英文類別 → 中文。7 類：裂痕/凹痕/缺鉚釘/蒙皮受損/機身損傷/機翼損傷/引擎損傷。
 3. **畫中文框（main.py:62~83）** `_draw_zh_boxes()`：OpenCV 不支援中文，借 PIL 來畫。每個框 = 綠框 + 綠底黑字標籤（例「裂痕 87%」）。
 4. **模型管家 YOLOManager（main.py:85~276）** 系統心臟：
@@ -216,7 +216,7 @@ sudo nmcli connection up AirCraft67Team
    - `/webrtc/offer`（513~529）：手機按「即時診斷」→ 主機開一把連線、啟動迴圈。
    - `/webrtc/answer`（532~548）：手機回覆信號，正式連線。
 8. **上傳與診斷 API（main.py:551~755）**：`/infer` 單張判斷；`/infer_hd` 定格診斷——**同一張跑 3 次合併**（592 行）；`/diagnose` 與 `/diagnose_upload` 走「嚴重的才叫文字顧問」邏輯（641 `MAJOR_CLASSES`，輕微類回傳固定提示）。
-9. **入口（main.py:758~781）**：`python main.py --ssl`。`--ssl` = 開 HTTPS（手機相機必備），`--port 8000` = 網頁掛 8000 號埠。
+9. **入口（main.py:758~781）**：`python main.py --ssl`。`--ssl` = 開 HTTPS（手機相機必備），`--port 443` = 網頁掛 443 號埠（HTTPS 標準埠，免打）。
 
 ## 6.2 webrtc_stream.py — 水管工（串流模組）
 
@@ -361,7 +361,7 @@ sixseven-project/
 │   └── scripts_*.py            # 資料集重建/清理 v3 用
 ├── pretrained/                 # 原始預訓練模型（yolo11n/s/26n .pt）
 ├── webUI_workspace/            # 網頁應用（主系統）
-│   ├── main.py                 # 總店長（FastAPI 後端，port 8000）
+│   ├── main.py                 # 總店長（FastAPI 後端，port 443）
 │   ├── webrtc_stream.py        # 水管工（WebRTC 串流）
 │   ├── templates/index.html    # 手機牆面
 │   ├── static/app.js           # 手機前台邏輯
@@ -389,7 +389,7 @@ sixseven-project/
 
 ---
 
-> 一句話總結：**開機 → 手機連 AirCraft67Team → Chrome 開 https://10.42.0.1:8000 → 允許相機 → 看到綠框就是成功。**
+> 一句話總結：**開機 → 手機連 AirCraft67Team → Chrome 開 https://10.42.0.1 → 允許相機 → 看到綠框就是成功。**
 > 連不上就重開網頁服務（`sudo systemctl restart sixseven-webrtc`，或舊法 `bash /tmp/opencode/start_webrtc.sh`）或重開機。
 > 想變準，多拍那幾種「少見」的損傷照片。
 > 想改東西，照《第 1 部》的速查表找到檔案，改完重啟服務。

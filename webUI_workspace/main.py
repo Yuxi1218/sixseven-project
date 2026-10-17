@@ -34,8 +34,12 @@ CONFIG = {
     "ollama_url": "http://localhost:11434/api/generate",
     "ollama_model": "gemma3:1b",  # smallest available gemma3 tag
     "device": "cpu",
-    "confidence": 0.25,
+    "confidence": 0.15,
     "img_size": 640,
+    # 下游推流（live 前端不顯示下游畫面，只靠 data channel 疊框）：
+    # 仍需保留 video m-line 讓手機上游相機 track 依附，故用低 fps + 不放大以省 CPU。
+    "downstream_fps": 3,
+    "downstream_upscale": False,
     "static_dir": os.path.join(BASE_DIR, "static"),
     "templates_dir": os.path.join(BASE_DIR, "templates"),
 }
@@ -119,11 +123,16 @@ class YOLOManager:
     def _resolve_model_path(base_path):
         """依名稱解析最優模型：TensorRT .engine 優先於 .pt。找不到回 None。"""
         base = os.path.splitext(base_path)[0]
-        for ext in [".engine", ".pt"]:
-            cand = base + ext
-            if os.path.exists(cand):
-                return cand
-        # 原路徑直接存在也可用
+        engine = base + ".engine"
+        pt = base + ".pt"
+        # 若 .pt 比 engine 新（模型重新部署過），改用 .pt，避免吃到過期 engine
+        if os.path.exists(engine):
+            if os.path.exists(pt) and os.path.getmtime(pt) > os.path.getmtime(engine):
+                print(f"[model] {os.path.basename(pt)} 比 engine 新 → 改用 .pt（建議重 build engine 恢復速度）")
+                return pt
+            return engine
+        if os.path.exists(pt):
+            return pt
         if os.path.exists(base_path):
             return base_path
         return None
@@ -183,7 +192,7 @@ class YOLOManager:
             YOLO_LOAD_FAILED = True
             return {"status": "demo_mode"}
 
-    def infer(self, image_data, use_large=False, conf=None, imgsz=None):
+    def infer(self, image_data, use_large=False, conf=None, imgsz=None, annotate=True):
         if image_data is None:
             return None
         
@@ -237,8 +246,12 @@ class YOLOManager:
                     "bbox": xyxy.tolist()
                 })
             
-            annotated_img = _draw_zh_boxes(img.copy(), detections)
-            
+            # live 模式前端自己疊框，不需要在 Jetson 畫中文標註（省 PIL ~8ms/幀）
+            if annotate:
+                annotated_img = _draw_zh_boxes(img.copy(), detections)
+            else:
+                annotated_img = img
+
             with self.current_frame_lock:
                 self.annotated_frame = annotated_img.copy()
                 self.annotated_seq += 1
@@ -463,12 +476,14 @@ def _stop_web_infer():
 
 
 def _web_infer_loop():
-    """連續推理環：手機上游相機幀到達即推理，更新 annotated_frame 供下游推流。
-    每幀 ~21ms（yolo11n imgsz640）→ 下游可達 ~45 FPS，繞過手機逐幀 encode。"""
+    """連續推理環：手機上游相機幀到達即推理，透過 data channel 把框推回手機疊加。
+    推論走 TensorRT engine（yolo11s, imgsz640）約 11ms/幀；Jetson 端不畫標註、下游低 fps。"""
     global _infer_running
     last_seq = -1
     cnt = 0
     processed = 0
+    infer_ms_sum = 0.0
+    t_report = time.time()
     while _infer_running:
         try:
             seq = webrtc.get_upstream_seq()
@@ -484,8 +499,12 @@ def _web_infer_loop():
             img_h, img_w = img.shape[:2]
             if processed % 60 == 0:
                 print(f"[web-infer] up frame shape={img.shape} (h={img_h} w={img_w})", flush=True)
-            # live 走較準確的 7 類 yolo11s（已換掉眼殘的舊 nano engine）
-            res = yolo_manager.infer(img, use_large=True, conf=CONFIG["confidence"], imgsz=640)
+            # live 走較準確的 7 類 yolo11s；annotate=False 因為前端是本地相機+canvas 疊框，
+            # 不需要 Jetson 端畫標註（省 ~8ms/幀 PIL）
+            _t0 = time.perf_counter()
+            res = yolo_manager.infer(img, use_large=True, conf=CONFIG["confidence"],
+                                     imgsz=640, annotate=False)
+            infer_ms_sum += (time.perf_counter() - _t0) * 1000.0
             # 把偵測框歸一化(0~1)推到手機疊加，手機顯示原生畫質
             dets = (res or {}).get("detections") or []
             if dets and img_w > 0 and img_h > 0:
@@ -503,8 +522,13 @@ def _web_infer_loop():
             elif not dets:
                 webrtc.push_detections({"seq": seq, "n": 0, "detections": []})
             processed += 1
-            if processed % 25 == 0:
-                print(f"[web-infer] 推理 {processed} 幀(dc={len(webrtc._data_channels)})", flush=True)
+            if processed % 50 == 0:
+                dt = time.time() - t_report
+                fps = 50.0 / dt if dt > 0 else 0.0
+                print(f"[web-infer] 推理 {processed} 幀(dc={len(webrtc._data_channels)}) "
+                      f"avg_infer={infer_ms_sum / 50:.1f}ms loop={fps:.1f}fps", flush=True)
+                infer_ms_sum = 0.0
+                t_report = time.time()
         except Exception as e:
             print(f"[web-infer] err: {e}")
             time.sleep(0.02)
@@ -520,7 +544,9 @@ async def webrtc_offer():
             _infer_running = True
             _infer_task = threading.Thread(target=_web_infer_loop, daemon=True)
             _infer_task.start()
-        webrtc.init(yolo_manager.get_annotated_frame)
+        webrtc.init(yolo_manager.get_annotated_frame,
+                    downstream_fps=CONFIG["downstream_fps"],
+                    downstream_upscale=CONFIG["downstream_upscale"])
         sdp, pc = await webrtc.create_offer()
         ident = str(id(pc))
         _peer_map[ident] = pc
@@ -590,7 +616,7 @@ async def infer_hd(request: Request):
         det_tuple_list = []  # (conf, cls, bbox, annotated)
         annotated = None
         for _ in range(3):
-            result = yolo_manager.infer(img, use_large=True, conf=0.25, imgsz=640)
+            result = yolo_manager.infer(img, use_large=True, conf=CONFIG["confidence"], imgsz=640)
             if result is None:
                 raise HTTPException(status_code=500, detail="Inference failed")
             annotated = result["annotated_image"]
@@ -755,6 +781,46 @@ async def diagnose_upload(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _start_http_redirect(http_port: int, https_port: int) -> None:
+    """在 http_port 監聽，把所有請求 301 轉到 https://同主機:https_port。
+
+    手機瀏覽器直接輸入 10.42.0.1 時會用 http:// 開啟，
+    此轉址讓它自動跳到 https://10.42.0.1/，不必自己補 s。
+    """
+    if http_port == https_port:
+        return
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class _RedirectHandler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def _redirect(self):
+            host = (self.headers.get("Host") or "").split(":")[0].strip() or "10.42.0.1"
+            netloc = host if https_port == 443 else f"{host}:{https_port}"
+            self.send_response(301)
+            self.send_header("Location", f"https://{netloc}{self.path}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        do_GET = _redirect
+        do_HEAD = _redirect
+        do_POST = _redirect
+        do_PUT = _redirect
+        do_DELETE = _redirect
+        do_OPTIONS = _redirect
+
+        def log_message(self, fmt, *args):  # 不刷 log
+            pass
+
+    try:
+        httpd = ThreadingHTTPServer(("0.0.0.0", http_port), _RedirectHandler)
+    except OSError as e:
+        print(f"⚠️ HTTP→HTTPS 轉址啟動失敗（port {http_port}）：{e}")
+        return
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    print(f"HTTP→HTTPS 轉址已啟用：http://*:{http_port} → https://*:{https_port}")
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -764,7 +830,9 @@ if __name__ == "__main__":
     parser.add_argument("--certfile", default="certs/cert.pem")
     parser.add_argument("--keyfile", default="certs/key.pem")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=443)
+    parser.add_argument("--redirect-port", type=int, default=80,
+                        help="HTTP 轉址埠（把 http://IP 轉到 https://IP；0 表示關閉）")
     args = parser.parse_args()
 
     ssl_kwargs = {}
@@ -777,5 +845,8 @@ if __name__ == "__main__":
             print(f"HTTPS 已啟用：https://{args.host}:{args.port}")
         else:
             print("⚠️ 找不到憑證，退回 HTTP")
+
+    if ssl_kwargs.get("ssl_certfile") and args.redirect_port:
+        _start_http_redirect(args.redirect_port, args.port)
 
     uvicorn.run(app, host=args.host, port=args.port, **ssl_kwargs)

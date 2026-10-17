@@ -128,7 +128,7 @@ WebRTC 是瀏覽器內建的即時影音傳輸標準，能雙向傳送畫素等�
 
 ### 4.3 無線網路（現場熱點）
 
-- Jetson 自建 WiFi 熱點，SSID：`AirCraft67Team`，網址：`https://10.42.0.1:8000`。
+- Jetson 自建 WiFi 熱點，SSID：`AirCraft67Team`，網址：`https://10.42.0.1`（HTTPS 標準埠 443，免打埠號）。
 - 手機連上熱點後獲得約 `10.42.0.x` 的 DHCP 位址。
 - 特殊處理：內建無線晶片 **rtl8822ce** 的省電/休眠模式會造成手機「連了卻連不通」。已透過核心模組參數關閉省電功能，並固定 2.4GHz 第一頻道，設定寫於 `/etc/modprobe.d/rtl8822ce-ap.conf`。
 
@@ -138,7 +138,7 @@ WebRTC 是瀏覽器內建的即時影音傳輸標準，能雙向傳送畫素等�
 
 ### 5.1 技術棧
 
-- 後端：Python + FastAPI + Uvicorn（HTTPS 服務 `:8000`）
+- 後端：Python + FastAPI + Uvicorn（HTTPS 服務 `:443`）
 - 推理：Ultralytics YOLO11s + OpenCV
 - 串流：WebRTC（aiortc）
 - 前端：原生 HTML/JavaScript/CSS（行動裝置最佳化）
@@ -283,7 +283,7 @@ WebRTC 是瀏覽器內建的即時影音傳輸標準，能雙向傳送畫素等�
 
 1. 開 Jetson → 等 1~2 分鐘。
 2. 手機連 WiFi「AirCraft67Team」。
-3. 瀏覽器開 `https://10.42.0.1:8000` → 進階 → 繼續前往。
+3. 瀏覽器開 `https://10.42.0.1` → 進階 → 繼續前往。
 4. 允許相機權限 → 看到綠框即完成。
 5. 對可疑處按「開始診斷」做定格確認。
 

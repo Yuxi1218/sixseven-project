@@ -5,7 +5,7 @@
 #
 # 用法：sudo ./switch_ap_safe.sh [SSID] [密碼]
 # 例：  sudo ./switch_ap_safe.sh AirCraft67Team 67676767
-# 手機連上後： https://10.42.0.1:8000
+# 手機連上後： https://10.42.0.1
 # =============================================================
 set -e
 
@@ -78,5 +78,5 @@ echo "  回滾監視已啟動"
 
 echo ""
 echo "=== 完成 ==="
-echo "手機連上 $SSID → https://$AP_IP:8000"
+echo "手機連上 $SSID → https://$AP_IP"
 echo "120 秒內手機沒連上 → 自動回復 Yuxi's Room WiFi"

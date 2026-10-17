@@ -1,0 +1,22 @@
+[Unit]
+Description=Sixseven Wing Damage Detection WebUI (HTTPS)
+After=network-online.target systemd-tmpfiles-setup.service
+Wants=network-online.target
+# 若 Ollama 存在，待其起來再啟動（沒有此 unit 時此行不影響）
+After=ollama.service
+
+[Service]
+Type=simple
+User=sixseven
+Group=sixseven
+WorkingDirectory=/home/sixseven/sixseven-project/webUI_workspace
+Environment=HOME=/home/sixseven
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/sixseven/sixseven-project/webUI_workspace/main.py --ssl
+Restart=always
+RestartSec=5
+StandardOutput=append:/tmp/opencode/https_webrtc27.log
+StandardError=append:/tmp/opencode/https_webrtc27.log
+
+[Install]
+WantedBy=multi-user.target

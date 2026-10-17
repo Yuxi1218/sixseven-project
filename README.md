@@ -27,7 +27,7 @@
 ```
 
 - **YOLO11** 找損傷框（7 類：Crack / Dent / Missing_Fastener / Skin_Cover / Fuselage_damage / Wing_damage / Engine_damage）。
-- **FastAPI** 當網頁後端（port 8000），手機透過 HTTPS 連上。
+- **FastAPI** 當網頁後端（port 443），手機透過 HTTPS 連上。
 - **WebRTC（aiortc）** 把手機相機畫面向 Jetson 傳送、再由 DataChannel 把框座標傳回手機疊框（DMA 式旁路，快又準）。
 - **Ollama（gemma3:1b）** 在偵測到嚴重損傷時生成維修建議報告。
 
@@ -70,7 +70,7 @@
 sixseven-project/
 ├── docs/                       # 所有文件（本手冊、報告、資料盤點、舊交接）
 ├── webUI_workspace/            # 網頁應用（主系統）
-│   ├── main.py                 # FastAPI 後端（port 8000）
+│   ├── main.py                 # FastAPI 後端（port 443）
 │   ├── webrtc_stream.py        # WebRTC 串流
 │   ├── templates/index.html    # 手機畫面
 │   ├── static/app.js           # 前端邏輯
@@ -94,7 +94,7 @@ sixseven-project/
 ```
 1. 開 Jetson → 等 1~2 分鐘
 2. 手機連熱點 AirCraft67Team
-3. 瀏覽器開 https://10.42.0.1:8000
+3. 瀏覽器開 https://10.42.0.1
 4. 允許使用相機 → 看到綠框 = 成功
 ```
 
