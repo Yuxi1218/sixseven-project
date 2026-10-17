@@ -128,8 +128,12 @@ async def _consume_upstream(track):
         except Exception:
             break
         try:
-            img = frame.to_ndarray(format="rgb24")
-            _upstream_img = img[:, :, ::-1].copy()  # RGB -> BGR
+            # 直接請 PyAV 轉成 BGR（省掉 rgb24 後再 [:, :, ::-1].copy() 的額外全複製）。
+            # 回傳的是視窗（view），非連續時才補一次 ascontiguousarray 給模型用。
+            img = frame.to_ndarray(format="bgr24")
+            if not img.flags["C_CONTIGUOUS"]:
+                img = np.ascontiguousarray(img)
+            _upstream_img = img
             _upstream_seq += 1
             got += 1
             if got == 1 or got % 50 == 0:

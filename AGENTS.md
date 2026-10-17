@@ -106,6 +106,7 @@ sudo bash tools/setup_env.sh                   # 加 --with-engine 會多建 TRT
 7. **`webUI_workspace/gen_cert.sh`**：SAN 一定要含熱點固定 IP `10.42.0.1`，否則手機開 `https://10.42.0.1` 會憑證不符。
 8. **`/etc/avahi/avahi-daemon.conf`**：`deny-interfaces=docker0,l4tbr0,usb0,usb1` 不可拿掉。否則 avahi 會用
    docker0 的 `172.17.0.1` 當 `sixseven-project.local` 的 A 記錄，手機解析到連不到的位址而卡住/逾時。
+   另需 `use-ipv6=no`（本機只有 link-local `fe80::`，avahi 發 AAAA 會讓手機先試 IPv6 逾時才退回 IPv4）。
 
 ## 5. 程式碼速查（改哪看哪）
 

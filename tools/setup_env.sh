@@ -300,8 +300,12 @@ if [ -f /etc/avahi/avahi-daemon.conf ]; then
     if ! grep -q '^deny-interfaces=' /etc/avahi/avahi-daemon.conf; then
         sed -i 's|^use-ipv6=yes|use-ipv6=yes\ndeny-interfaces=docker0,l4tbr0,usb0,usb1|' /etc/avahi/avahi-daemon.conf
     fi
+    # 關 IPv6：本機只有 link-local fe80::，avahi 發 AAAA 會讓手機先試 IPv6 逾時才退回 IPv4。
+    if grep -q '^use-ipv6=yes' /etc/avahi/avahi-daemon.conf; then
+        sed -i 's|^use-ipv6=yes|use-ipv6=no|' /etc/avahi/avahi-daemon.conf
+    fi
     systemctl restart avahi-daemon >/dev/null 2>&1
-    ok "avahi：已排除虛擬介面，.local 指向 Wi-Fi IP"
+    ok "avahi：已排除虛擬介面 + 關 IPv6，.local 指向 Wi-Fi IPv4"
 else
     warn "找不到 /etc/avahi/avahi-daemon.conf（avahi 未安裝？.local 可能不可用）"
 fi

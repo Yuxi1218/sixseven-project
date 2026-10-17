@@ -41,6 +41,9 @@ CONFIG = {
     # 仍需保留 video m-line 讓手機上游相機 track 依附，故用低 fps + 不放大以省 CPU。
     "downstream_fps": 3,
     "downstream_upscale": False,
+    # data channel 疊框推送上限 fps：推理 loop 可能到 ~30fps，但人眼疊框 15fps 已很順，
+    # 節流可減少 JSON 訊息與手機端重繪（只在內容變化或超過 keepalive 時才送）。
+    "push_fps": 15,
     "static_dir": os.path.join(BASE_DIR, "static"),
     "templates_dir": os.path.join(BASE_DIR, "templates"),
 }
@@ -507,6 +510,10 @@ def _web_infer_loop():
     processed = 0
     infer_ms_sum = 0.0
     t_report = time.time()
+    push_interval = 1.0 / max(1, CONFIG["push_fps"])
+    push_keepalive = 1.0
+    last_push = 0.0
+    last_sig = None
     while _infer_running:
         try:
             seq = webrtc.get_upstream_seq()
@@ -532,6 +539,7 @@ def _web_infer_loop():
             infer_ms_sum += (time.perf_counter() - _t0) * 1000.0
             # 把偵測框歸一化(0~1)推到手機疊加，手機顯示原生畫質
             dets = (res or {}).get("detections") or []
+            norm = []
             if dets and img_w > 0 and img_h > 0:
                 norm = [{
                     "class": d["class"],
@@ -543,9 +551,14 @@ def _web_infer_loop():
                         round(d["bbox"][3] / img_h, 4),
                     ],
                 } for d in dets]
+            # 節流：最多 push_fps，且內容沒變就只靠 keepalive 秒數刷新一次
+            now_p = time.time()
+            sig = tuple((d["class"], *d["bbox"]) for d in norm)
+            if (now_p - last_push >= push_interval) and \
+               (sig != last_sig or now_p - last_push >= push_keepalive):
                 webrtc.push_detections({"seq": seq, "n": len(norm), "detections": norm})
-            elif not dets:
-                webrtc.push_detections({"seq": seq, "n": 0, "detections": []})
+                last_push = now_p
+                last_sig = sig
             processed += 1
             if processed % 50 == 0:
                 dt = time.time() - t_report
