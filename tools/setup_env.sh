@@ -219,6 +219,7 @@ ok "ip_unprivileged_port_start=80（$(sysctl -n net.ipv4.ip_unprivileged_port_st
 # ============================================================================
 step "7. sudoers 與 tmpfiles"
 # ============================================================================
+mkdir -p /etc/sudoers.d /etc/tmpfiles.d
 cat > /etc/sudoers.d/sixseven-webrtc <<EOF
 # 允許 $TARGET_USER 免密碼重啟/查詢 WebUI 服務（tools/start_webrtc.sh 與 deploy_watcher 使用）
 $TARGET_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart sixseven-webrtc, /usr/bin/systemctl start sixseven-webrtc, /usr/bin/systemctl stop sixseven-webrtc, /usr/bin/systemctl status sixseven-webrtc
