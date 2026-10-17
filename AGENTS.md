@@ -104,6 +104,8 @@ sudo bash tools/setup_env.sh                   # 加 --with-engine 會多建 TRT
 5. **LLM gate**：`MAJOR_CLASSES`（main.py:641）決定何時叫 Ollama；輕微類別直接回應。不要把 `_should_invoke_llm` 拿掉（會讓每次診斷都等 1~2 分鐘）。
 6. **`/etc/sysctl.d/99-unprivileged-ports.conf`**：`net.ipv4.ip_unprivileged_port_start=80`，勿改回 1024，否則非 root 的服務綁不到 443/80 而起不來。
 7. **`webUI_workspace/gen_cert.sh`**：SAN 一定要含熱點固定 IP `10.42.0.1`，否則手機開 `https://10.42.0.1` 會憑證不符。
+8. **`/etc/avahi/avahi-daemon.conf`**：`deny-interfaces=docker0,l4tbr0,usb0,usb1` 不可拿掉。否則 avahi 會用
+   docker0 的 `172.17.0.1` 當 `sixseven-project.local` 的 A 記錄，手機解析到連不到的位址而卡住/逾時。
 
 ## 5. 程式碼速查（改哪看哪）
 
@@ -134,6 +136,7 @@ sudo bash tools/setup_env.sh                   # 加 --with-engine 會多建 TRT
 - `curl -k https://10.42.0.1/status` 回 `{"yolo_loaded": true, ...}`。
 - `curl -sI http://10.42.0.1/` 回 `301` → `https://10.42.0.1/`（手機輸入 IP 免打 https）。
 - 熱點用戶端可用主機名連：`http://sixseven-project` → 301 → `https://sixseven-project`（AP 的 dnsmasq 已設 `address=/sixseven-project/10.42.0.1`）。
+- `.local` 也可用：`http://sixseven-project.local` → 301 → `https://sixseven-project.local`（avahi mDNS；需 `deny-interfaces=docker0,...` 見 §4.8，否則會解析到 docker0 的 172.17.0.1）。
 - 手機連熱點開 https://10.42.0.1 → 允許相機 → 綠框對準物體邊緣 = 疊框正確。
 - 定格診斷：按「開始診斷」能出框好圖＋報告，且不會卡超過 2 分鐘。
 

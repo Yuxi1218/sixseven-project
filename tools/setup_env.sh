@@ -292,7 +292,22 @@ else
 fi
 
 # ============================================================================
-step "12. 開啟 WiFi 熱點（最後一步）"
+step "12. mDNS 主機名（sixseven-project.local）"
+# ============================================================================
+# 讓 .local 解析到 Wi-Fi IP，而不是 docker0（172.17.0.1）等虛擬橋接位址；
+# 否則手機用 http://sixseven-project.local 會連到連不到的位址而卡住/逾時。
+if [ -f /etc/avahi/avahi-daemon.conf ]; then
+    if ! grep -q '^deny-interfaces=' /etc/avahi/avahi-daemon.conf; then
+        sed -i 's|^use-ipv6=yes|use-ipv6=yes\ndeny-interfaces=docker0,l4tbr0,usb0,usb1|' /etc/avahi/avahi-daemon.conf
+    fi
+    systemctl restart avahi-daemon >/dev/null 2>&1
+    ok "avahi：已排除虛擬介面，.local 指向 Wi-Fi IP"
+else
+    warn "找不到 /etc/avahi/avahi-daemon.conf（avahi 未安裝？.local 可能不可用）"
+fi
+
+# ============================================================================
+step "13. 開啟 WiFi 熱點（最後一步）"
 # ============================================================================
 # 讓熱點用戶端能用主機名連服務（短名 sixseven-project 與 .local 都指向 AP IP）
 HOST_SHORT="${HOST_SHORT:-$(hostname | sed 's/\..*//')}"
@@ -330,7 +345,7 @@ fi
 # ============================================================================
 echo
 echo "${BOLD}${GRN}===== 完成 =====${RST}"
-echo "  手機：連 WiFi「${BOLD}$AP_SSID${RST}」(密碼 $AP_PASS) → 瀏覽器輸入 ${BOLD}$AP_IP${RST} 或 ${BOLD}$HOST_SHORT${RST}"
+echo "  手機：連 WiFi「${BOLD}$AP_SSID${RST}」(密碼 $AP_PASS) → 瀏覽器輸入 ${BOLD}$AP_IP${RST} / ${BOLD}$HOST_SHORT${RST} / ${BOLD}$HOST_SHORT.local${RST}"
 echo "        （會自動從 http 跳到 https；首次需點「進階 → 繼續前往」信任自簽憑證）"
 echo "  服務：systemctl status sixseven-webrtc　log：/tmp/opencode/https_webrtc27.log"
 echo "  狀態：curl -k https://$AP_IP/status"
