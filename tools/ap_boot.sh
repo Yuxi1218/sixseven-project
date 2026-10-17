@@ -47,8 +47,13 @@ for i in $(seq 1 "$AP_RETRIES"); do
     if nmcli connection up "$AP_NAME" >/dev/null 2>&1; then
         ipaddr=$(ip -4 -o addr show "$AP_DEV" 2>/dev/null \
             | awk '{print $4}' | cut -d/ -f1 | head -1)
-        log "OK：$AP_NAME 已上線，$AP_DEV = ${ipaddr:-?}"
-        exit 0
+        if [ -n "$ipaddr" ]; then
+            log "OK：$AP_NAME 已上線，$AP_DEV = $ipaddr"
+            exit 0
+        fi
+        # 曾經遇過 activated 但介面沒拿到 IPv4：強制 down 後重試，避免假成功
+        log "已 activated 但 $AP_DEV 無 IPv4，強制 down 後重試…"
+        nmcli connection down "$AP_NAME" >/dev/null 2>&1 || true
     fi
     sleep "$AP_SLEEP"
 done
